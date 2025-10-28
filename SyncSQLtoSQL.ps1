@@ -57,6 +57,7 @@ function Query_BDD_MASTER {
 	
 	# Récupération de la liste des tables à synchroniser
 	$tables = $script:Master.table -split ','
+	$keys   = $script:cfg['SQL_Master']['key'] -split ','
 	
 	foreach ($table in $tables) {
 		$table = $table.Trim()
@@ -71,7 +72,7 @@ function Query_BDD_MASTER {
 			$script:BDDMASTER[$table] = @{}
 		}
 		
-		Query_BDDTable -params $tableParams -functionName "Query_BDD_MASTER" -keyColumns @("ID") -targetVariable $script:BDDMASTER[$table] -UseFrmtDateOUT
+		Query_BDDTable -params $tableParams -functionName "Query_BDD_MASTER" -keyColumns $keys -targetVariable $script:BDDMASTER[$table] -UseFrmtDateOUT
 	}
 }
 
@@ -81,6 +82,7 @@ function Query_BDD_SLAVE {
 	
 	# Récupération de la liste des tables à synchroniser
 	$tables = $script:Slave.table -split ','
+	$keys   = $script:cfg['SQL_Master']['key'] -split ','
 	
 	foreach ($table in $tables) {
 		$table = $table.Trim()
@@ -95,24 +97,25 @@ function Query_BDD_SLAVE {
 			$script:BDDSLAVE[$table] = @{}
 		}
 		
-		Query_BDDTable -params $tableParams -functionName "Query_BDD_SLAVE" -keyColumns @("ID") -targetVariable $script:BDDSLAVE[$table] -UseFrmtDateOUT
+		Query_BDDTable -params $tableParams -functionName "Query_BDD_SLAVE" -keyColumns $keys -targetVariable $script:BDDSLAVE[$table] -UseFrmtDateOUT
 	}
 }
 
 function Update_BDD_SLAVE {
 	# Récupération de la liste des tables à synchroniser
 	$tables = $script:Slave.table -split ','
+	$keys   = $script:cfg['SQL_Master']['key'] -split ','
 	
 	foreach ($table in $tables) {
 		$table = $table.Trim()
 		
 		# Vérification que les données existent pour cette table
 		if ($script:BDDMASTER.ContainsKey($table) -and $script:BDDSLAVE.ContainsKey($table)) {
-			Update_BDDTable $script:BDDMASTER[$table] $script:BDDSLAVE[$table] @("ID") $table "Update_BDD_SLAVE" { 
+			Update_BDDTable $script:BDDMASTER[$table] $script:BDDSLAVE[$table] $keys $table "Update_BDD_SLAVE" { 
 				# Recharger uniquement cette table spécifique
 				$tableParams = $script:Slave.Clone()
 				$tableParams.table = $table
-				Query_BDDTable -params $tableParams -functionName "Update_BDD_SLAVE" -keyColumns @("ID") -targetVariable $script:BDDSLAVE[$table] -UseFrmtDateOUT
+				Query_BDDTable -params $tableParams -functionName "Update_BDD_SLAVE" -keyColumns $keys -targetVariable $script:BDDSLAVE[$table] -UseFrmtDateOUT
 			}
 		} else {
 			WRN "Update_BDD_SLAVE" "Données manquantes pour la table $table - synchronisation ignorée"
@@ -199,42 +202,50 @@ function Update_BDDTable {
 #               Main
 # --------------------------------------------------------
 
-# Chargement des modules
-. "$PSScriptRoot\Modules\Ini.ps1" > $null 
-. "$PSScriptRoot\Modules\Log.ps1" > $null 
-. "$PSScriptRoot\Modules\Encode.ps1"     > $null 
-. "$PSScriptRoot\Modules\SendEmail.ps1"  > $null 
-. "$PSScriptRoot\Modules\StrConvert.ps1" > $null  
+# --------------------------------------------------------
+#               Main
+# --------------------------------------------------------
+	# Chargement des modules
+	$pathmodule = "$PSScriptRoot\Modules"
 
-# Détermination du fichier de configuration
-if ($args.Count -gt 0 -and $args[0]) {
-    # Si un paramètre est passé, l'utiliser comme nom du fichier .ini
-    $script:cfgFile = "$PSScriptRoot\$($args[0])"
-} else {
-    # Sinon, utiliser le nom du script avec l'extension .ini
-    $scriptName = [System.IO.Path]::GetFileNameWithoutExtension($MyInvocation.MyCommand.Name)
-    $script:cfgFile = "$PSScriptRoot\$scriptName.ini"
-}
+	if (Test-Path "$pathmodule\Ini.ps1" -PathType Leaf) {
+		. "$pathmodule\Ini.ps1" > $null 
+	} else {
+		Write-Host "Fichier manquant : $pathmodule\Ini.ps1" -ForegroundColor Red
+		exit (1)
+	}
+	. (GetPathScript "$pathmodule\Log.ps1")        > $null
+	. (GetPathScript "$pathmodule\Encode.ps1")     > $null
+	. (GetPathScript "$pathmodule\StrConvert.ps1") > $null
+	. (GetPathScript "$pathmodule\SendEmail.ps1")  > $null
 
-LoadIni
+	# Détermination du fichier de configuration
+	if ($args.Count -gt 0 -and $args[0]) {
+		# Si un paramètre est passé, l'utiliser comme nom du fichier .ini
+		$script:cfgFile = "$PSScriptRoot\$($args[0])"
+	} else {
+		# Sinon, utiliser le nom du script avec l'extension .ini
+		$scriptName = [System.IO.Path]::GetFileNameWithoutExtension($MyInvocation.MyCommand.Name)
+		$script:cfgFile = "$PSScriptRoot\$scriptName.ini"
+	}
+	LoadIni
 
-SetConsoleToUFT8
+	# Parametrage console en UFT8 (chcp 65001 ou 850) pour carractères accentués
+	SetConsoleToUFT8
 
-Add-Type -AssemblyName System.Web
+	. (GetPathScript "$pathmodule\SQL - Transaction.ps1") > $null
+	if ($script:cfg["start"]["TransacSQL"] -eq "AllInOne" ) {
+		. (GetPathScript "$pathmodule\SQLServer - TransactionAllInOne.ps1") > $null
+	} else {
+		. (GetPathScript "$pathmodule\SQLServer - TransactionOneByOne.ps1") > $null
+	}
 
-. "$PSScriptRoot\Modules\SQL - Transaction.ps1" > $null
-if ($script:cfg["start"]["TransacSQL"] -eq "AllInOne" ) {
-	. "$PSScriptRoot\Modules\SQLServer - TransactionAllInOne.ps1" > $null
-} else {
-	. "$PSScriptRoot\Modules\SQLServer - TransactionOneByOne.ps1" > $null
-}
+	LOG "MAIN" "Synchronisation SQL >> SQL" -CRLF...
 
-LOG "MAIN" "Synchronisation SQL >> SQL" -CRLF...
+	Query_BDD_MASTER
+	Query_BDD_SLAVE
+	Update_BDD_SLAVE
 
-Query_BDD_MASTER
-Query_BDD_SLAVE
-Update_BDD_SLAVE
-
-QUIT "MAIN" "Process terminé"
+	QUIT "MAIN" "Process terminé"
 
 

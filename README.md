@@ -107,7 +107,7 @@ Charge en mémoire le contenu des tables de la **base de données maître** et l
 * Se connecte à la base SQL Server maître définie dans [**SQL_Master**]
 * Récupère toutes les données des tables spécifiées dans le paramètre [SQL_Master][table]
 * Traite chaque table individuellement (supporte plusieurs tables séparées par des virgules)
-* Utilise la clé primaire ID pour indexer les données
+* Utilise les clé [SQL_Master][key] pour indexer les données
 * Applique le formatage de date défini dans [SQL_Master][SQLformatDate]
 * Stocke les données dans la variable `$script:BDDMASTER`
 
@@ -118,13 +118,15 @@ Charge en mémoire le contenu des tables de la **base de données esclave** et l
 * Se connecte à la base SQL Server esclave définie dans [**SQL_Slave**]
 * Récupère toutes les données des tables spécifiées dans le paramètre [SQL_Slave][table]
 * Traite chaque table individuellement (supporte plusieurs tables séparées par des virgules)
-* Utilise la clé primaire ID pour indexer les données
+* Utilise les clé [SQL_Slave][key] pour indexer les données
 * Applique le formatage de date défini dans [SQL_Slave][SQLformatDate]
 * Stocke les données dans la variable `$script:BDDSLAVE`
 
 ### Update_BDD_SLAVE
 
 Effectue la synchronisation des données entre les bases maître et esclave.
+
+* Utilise les clé [SQL_Slave][key] pour indexer les données
 
 * **Comparaison** : Compare les hash tables maître et esclave pour identifier les différences
 * **Insertion** : Ajoute les nouveaux enregistrements présents dans la base maître
@@ -236,17 +238,20 @@ pathfileerr   = $rootpath$\logs\SyncSQLtoSQL-Cumul.err
 
 # -------------------------------------------------------------------
 #     Parametrage de la base SQL Server MASTER (source)
+#     Toutes les tables doivent avoir la même clé
 # -------------------------------------------------------------------
 [SQL_Master]                                                                       
 server        = WIN-09T11CB4M65\TEST
 database      = admin
 table         = annuaire_acteur,annuaire_entite
 login         = sa
+key           = ID
 password      = !Plmuvimvmhpb2
 SQLformatDate = dd/MM/yyyy HH:mm:ss
 
 # -------------------------------------------------------------------
 #     Parametrage de la base SQL Server SLAVE (destination)
+#     Toutes les tables doivent avoir la même clé que SQL Master
 # -------------------------------------------------------------------
 [SQL_Slave]                                                                       
 server        = PITHOME
@@ -288,7 +293,20 @@ password     =
 | debug | yes/no | Active le mode debug (affichage des messages DBG) |
 | warntoerr | yes/no | Inclut les warnings dans le fichier d'erreurs cumulées |
 
-### Section [SQL_Master] et [SQL_Slave]
+### Section [SQL_Master]
+
+| Paramètre | Description |
+|-----------|-------------|
+| server | Nom du serveur SQL Server (peut inclure l'instance : `SERVER\INSTANCE`) |
+| database | Nom de la base de données |
+| table | Liste des tables à synchroniser (séparées par des virgules) |
+| login | Login de connexion SQL Server |
+| key | liste des clés séparés par une virgule |
+| password | Mot de passe (peut être encodé) |
+| SQLformatDate | Format de date pour la conversion (ex: `dd/MM/yyyy HH:mm:ss`) |
+| AllowDelete | yes/no (uniquement pour SQL_Slave) - Autorise la suppression des enregistrements orphelins |
+
+### Section [SQL_Slave]
 
 | Paramètre | Description |
 |-----------|-------------|
